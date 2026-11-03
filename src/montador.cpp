@@ -3,7 +3,7 @@
 #include "tabelas.hpp"
 #include <iostream>
 
-Montador::Montador() : secao_text_encontrada(false), secao_data_encontrada(false) {}
+Montador::Montador() : secao_text_encontrada(false), secao_data_encontrada(false), modo_modulo(false) {}
 
 void Montador::emitirErro(int linha, const std::string &tipo, const std::string &mensagem)
 {
@@ -32,7 +32,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
     int numeroLinha = 1;
     bool ignorarProximaLinha = false;
 
-    // Etapa de Pré-processamento de EQU
+    // Pré-processamento de diretivas EQU
     while (std::getline(arquivoEntrada, linha))
     {
         Utils::removerComentarios(linha);
@@ -45,7 +45,6 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         }
     }
 
-    // Reset do ponteiro para a Primeira Passagem real
     arquivoEntrada.clear();
     arquivoEntrada.seekg(0, std::ios::beg);
 
@@ -70,6 +69,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 
         int offsetToken = 0;
 
+        // Verificação de rótulos
         if (tokens[0].back() == ':')
         {
             std::string rotulo = tokens[0].substr(0, tokens[0].size() - 1);
@@ -77,7 +77,22 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             if (tokens.size() > 1 && tokens[1] == "EQU")
             {
                 numeroLinha++;
-                continue; // EQU já processado
+                continue;
+            }
+
+            if (tokens.size() > 1 && tokens[1] == "BEGIN")
+            {
+                modo_modulo = true;
+                numeroLinha++;
+                continue;
+            }
+
+            if (tokens.size() > 1 && tokens[1] == "EXTERN")
+            {
+                modo_modulo = true;
+                simbolos_externos.insert(rotulo);
+                numeroLinha++;
+                continue;
             }
 
             if (!Utils::isRotuloValido(rotulo))
@@ -101,6 +116,31 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         }
 
         std::string operacao = tokens[offsetToken];
+
+        if (operacao == "BEGIN" || operacao == "END")
+        {
+            modo_modulo = true;
+            numeroLinha++;
+            continue;
+        }
+
+        if (operacao == "PUBLIC")
+        {
+            modo_modulo = true;
+            if (tokens.size() > (size_t)(offsetToken + 1))
+            {
+                declaracoes_publicas.push_back(tokens[offsetToken + 1]);
+            }
+            numeroLinha++;
+            continue;
+        }
+
+        if (operacao == "EXTERN")
+        {
+            modo_modulo = true;
+            numeroLinha++;
+            continue;
+        }
 
         if (operacao == "SECAO" || operacao == "SECTION")
         {
@@ -149,12 +189,71 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
     }
 }
 
+void Montador::processarOperando(const std::string &token, int linha, int posAtual, std::vector<int> &codigoObjeto)
+{
+    std::string baseSymbol = token;
+    int offset = 0;
+
+    // Trata sintaxe de array como ROTULO+2
+    size_t posMais = token.find('+');
+    if (posMais != std::string::npos)
+    {
+        baseSymbol = token.substr(0, posMais);
+        offset = std::stoi(token.substr(posMais + 1));
+    }
+
+    if (simbolos_externos.count(baseSymbol))
+    {
+        tabela_uso.push_back({baseSymbol, posAtual});
+        codigoObjeto.push_back(0 + offset);
+        mapa_relocacao.push_back(0); // Referência externa resolvida na ligação
+    }
+    else if (tabela_simbolos.count(baseSymbol))
+    {
+        codigoObjeto.push_back(tabela_simbolos[baseSymbol] + offset);
+        mapa_relocacao.push_back(1); // Relocável (sofrerá deslocamento de módulo)
+    }
+    else if (tabela_equ.count(baseSymbol))
+    {
+        codigoObjeto.push_back(tabela_equ[baseSymbol] + offset);
+        mapa_relocacao.push_back(0); // Absoluto
+    }
+    else
+    {
+        try
+        {
+            int valor = std::stoi(token);
+            codigoObjeto.push_back(valor);
+            mapa_relocacao.push_back(0); // Constante / Absoluto
+        }
+        catch (...)
+        {
+            emitirErro(linha, "SEMANTICO", "Rotulo '" + baseSymbol + "' ausente.");
+            codigoObjeto.push_back(0);
+            mapa_relocacao.push_back(0);
+        }
+    }
+}
+
 void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida)
 {
     std::string linha;
     int numeroLinha = 1;
     bool ignorarProximaLinha = false;
     std::vector<int> codigoObjeto;
+
+    // Constrói a Tabela de Definições
+    for (const auto &pub : declaracoes_publicas)
+    {
+        if (tabela_simbolos.count(pub))
+        {
+            tabela_definicoes[pub] = tabela_simbolos[pub];
+        }
+        else
+        {
+            emitirErro(0, "SEMANTICO", "Simbolo publico '" + pub + "' nao foi definido no modulo.");
+        }
+    }
 
     while (std::getline(arquivoEntrada, linha))
     {
@@ -194,7 +293,8 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
 
         std::string operacao = tokens[offsetToken];
 
-        if (operacao == "SECAO" || operacao == "EQU")
+        if (operacao == "SECAO" || operacao == "SECTION" || operacao == "EQU" ||
+            operacao == "BEGIN" || operacao == "END" || operacao == "PUBLIC" || operacao == "EXTERN")
         {
             numeroLinha++;
             continue;
@@ -216,23 +316,12 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         {
             Instrucao inst = tabela_instrucoes.at(operacao);
             codigoObjeto.push_back(inst.opcode);
+            mapa_relocacao.push_back(0); // Opcode é instrução absoluta
 
             for (size_t i = offsetToken + 1; i < tokens.size(); ++i)
             {
-                std::string operando = tokens[i];
-                if (tabela_simbolos.count(operando))
-                {
-                    codigoObjeto.push_back(tabela_simbolos[operando]);
-                }
-                else if (tabela_equ.count(operando))
-                {
-                    codigoObjeto.push_back(tabela_equ[operando]);
-                }
-                else
-                {
-                    emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + operando + "' ausente.");
-                    codigoObjeto.push_back(0);
-                }
+                int posAtual = codigoObjeto.size();
+                processarOperando(tokens[i], numeroLinha, posAtual, codigoObjeto);
             }
         }
         else if (operacao == "SPACE")
@@ -241,6 +330,7 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             for (int i = 0; i < qtd; ++i)
             {
                 codigoObjeto.push_back(0);
+                mapa_relocacao.push_back(0);
             }
         }
         else if (operacao == "CONST")
@@ -248,18 +338,55 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             std::string arg = tokens[offsetToken + 1];
             int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
             codigoObjeto.push_back(valor);
+            mapa_relocacao.push_back(0);
         }
 
         numeroLinha++;
     }
 
-    for (size_t i = 0; i < codigoObjeto.size(); ++i)
+    // Formatação de saída do arquivo objeto
+    if (modo_modulo)
     {
-        arquivoSaida << codigoObjeto[i];
-        if (i < codigoObjeto.size() - 1)
+        // Formato estruturado para o Ligador
+        arquivoSaida << "USO:";
+        for (const auto &par : tabela_uso)
         {
-            arquivoSaida << " ";
+            arquivoSaida << " " << par.first << " " << par.second;
         }
+        arquivoSaida << "\n";
+
+        arquivoSaida << "DEF:";
+        for (const auto &par : tabela_definicoes)
+        {
+            arquivoSaida << " " << par.first << " " << par.second;
+        }
+        arquivoSaida << "\n";
+
+        arquivoSaida << "RELOC:";
+        for (size_t i = 0; i < mapa_relocacao.size(); ++i)
+        {
+            arquivoSaida << " " << mapa_relocacao[i];
+        }
+        arquivoSaida << "\n";
+
+        arquivoSaida << "CODE:";
+        for (size_t i = 0; i < codigoObjeto.size(); ++i)
+        {
+            arquivoSaida << " " << codigoObjeto[i];
+        }
+        arquivoSaida << "\n";
     }
-    arquivoSaida << "\n";
+    else
+    {
+        // Formato de linha única (compatível com programas monolíticos sem ligação)
+        for (size_t i = 0; i < codigoObjeto.size(); ++i)
+        {
+            arquivoSaida << codigoObjeto[i];
+            if (i < codigoObjeto.size() - 1)
+            {
+                arquivoSaida << " ";
+            }
+        }
+        arquivoSaida << "\n";
+    }
 }

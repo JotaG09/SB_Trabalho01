@@ -1,6 +1,5 @@
-# Variáveis de configuração
+# Configurações do Compilador
 CXX = g++
-# Flags -MMD -MP geram automaticamente arquivos .d para rastrear alterações em arquivos .hpp
 CXXFLAGS = -Wall -Wextra -std=c++17 -Iinclude -MMD -MP
 
 # Diretórios
@@ -8,42 +7,46 @@ SRC_DIR = src
 INC_DIR = include
 OBJ_DIR = obj
 
-# Arquivos fonte (dentro de src/)
-SOURCES = $(SRC_DIR)/main.cpp $(SRC_DIR)/montador.cpp
+# Fontes dos Binários
+MONTADOR_SOURCES = $(SRC_DIR)/main.cpp $(SRC_DIR)/montador.cpp
+LIGADOR_SOURCES = $(SRC_DIR)/ligador.cpp $(SRC_DIR)/montador.cpp
 
-# Mapeia os arquivos de objeto e dependências para a pasta obj/
-OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
-DEPS = $(OBJECTS:.o=.d)
+# Ficheiros de Objeto e Dependências (.d)
+MONTADOR_OBJECTS = $(MONTADOR_SOURCES:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
+LIGADOR_OBJECTS = $(LIGADOR_SOURCES:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
 
-# Nome do executável final
-TARGET = programa
+DEPS = $(sort $(MONTADOR_OBJECTS:.o=.d) $(LIGADOR_OBJECTS:.o=.d))
 
-# Declara regras que não geram arquivos diretamente
+# Executáveis
+TARGET_MONTADOR = montador
+TARGET_LIGADOR = ligador
+
 .PHONY: all clean run
 
-# Regra principal
-all: $(OBJ_DIR) $(TARGET)
+all: $(OBJ_DIR) $(TARGET_MONTADOR) $(TARGET_LIGADOR)
 
-# Cria a pasta obj se ela não existir
+# Cria a pasta obj caso não exista
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-# Gera o executável final a partir dos objetos
-$(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) $(OBJECTS) -o $(TARGET)
+# Compilação do Montador
+$(TARGET_MONTADOR): $(MONTADOR_OBJECTS)
+	$(CXX) $(CXXFLAGS) $(MONTADOR_OBJECTS) -o $(TARGET_MONTADOR)
 
-# Compila cada arquivo .cpp para .o
+# Compilação do Ligador
+$(TARGET_LIGADOR): $(LIGADOR_OBJECTS)
+	$(CXX) $(CXXFLAGS) $(LIGADOR_OBJECTS) -o $(TARGET_LIGADOR)
+
+# Compilação genérica dos ficheiros .cpp para .o
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Inclui os arquivos de dependência auto-gerados (.d)
 -include $(DEPS)
 
-# Limpa os executáveis, a pasta obj e os arquivos .obj gerados pelos testes
+# Limpeza dos objetos e binários
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET)
-	rm -f *.exe *.obj
+	rm -rf $(OBJ_DIR) $(TARGET_MONTADOR) $(TARGET_LIGADOR) *.obj *.lig *.exe
 
-# Compila e roda o teste principal automaticamente
+# Regra para testar o montador monolítico
 run: all
-	./$(TARGET) "asm-sem-ligacao.txt"
+	./$(TARGET_MONTADOR) "asm-sem-ligacao.txt"
