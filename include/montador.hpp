@@ -9,14 +9,17 @@
 class Montador
 {
 private:
-    // Tabela de Símbolos (armazena o Rótulo e seu Endereço correspondente)
     std::unordered_map<std::string, int> tabela_simbolos;
+    std::unordered_map<std::string, int> tabela_equ;
 
-    // Tabela de Definições de EQU (Rótulo -> Valor)
-    std::unordered_map<std::string, std::string> tabela_equ;
+    // Variáveis que o compilador acusou não estarem definidas
+    bool secao_text_encontrada;
+    bool secao_data_encontrada;
 
+    // Funções internas da classe
     void primeiraPassagem(std::ifstream &arquivoEntrada);
     void segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida);
+    void emitirErro(int linha, const std::string &tipo, const std::string &mensagem);
 
 public:
     Montador();
