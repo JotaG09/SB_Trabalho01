@@ -32,16 +32,25 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
     int numeroLinha = 1;
     bool ignorarProximaLinha = false;
 
-    // Pré-processamento de diretivas EQU
+    // Pré-processamento de EQU
     while (std::getline(arquivoEntrada, linha))
     {
         Utils::removerComentarios(linha);
         Utils::paraMaiusculo(linha);
         std::vector<std::string> tokens = Utils::tokenizar(linha);
-        if (tokens.size() >= 3 && tokens[0].back() == ':' && tokens[1] == "EQU")
+        if (tokens.size() >= 3)
         {
-            std::string rotulo = tokens[0].substr(0, tokens[0].size() - 1);
-            tabela_equ[rotulo] = std::stoi(tokens[2]);
+            std::string rotulo = "";
+            if (tokens[0].back() == ':')
+                rotulo = tokens[0].substr(0, tokens[0].size() - 1);
+            else if (tokens[1] == "EQU")
+                rotulo = tokens[0];
+
+            if (!rotulo.empty() && (tokens[1] == "EQU" || (tokens.size() > 2 && tokens[2] == "EQU")))
+            {
+                std::string valStr = (tokens[1] == "EQU") ? tokens[2] : tokens[3];
+                tabela_equ[rotulo] = std::stoi(valStr);
+            }
         }
     }
 
@@ -67,34 +76,93 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             continue;
         }
 
-        int offsetToken = 0;
+        std::string rotulo = "";
+        std::string operacao = "";
+        std::vector<std::string> args;
+        size_t idx = 0;
 
-        // Verificação de rótulos
-        if (tokens[0].back() == ':')
+        // Identifica rótulo (com ou sem dois pontos para diretivas de módulo)
+        if (tokens[idx].back() == ':')
         {
-            std::string rotulo = tokens[0].substr(0, tokens[0].size() - 1);
+            rotulo = tokens[idx].substr(0, tokens[idx].size() - 1);
+            idx++;
+        }
+        else if (tokens.size() > 1 && (tokens[1] == "BEGIN" || tokens[1] == "EXTERN" || tokens[1] == "PUBLIC" || tokens[1] == "EQU"))
+        {
+            rotulo = tokens[idx];
+            idx++;
+        }
 
-            if (tokens.size() > 1 && tokens[1] == "EQU")
+        if (idx < tokens.size())
+        {
+            operacao = tokens[idx];
+            idx++;
+            while (idx < tokens.size())
             {
-                numeroLinha++;
-                continue;
+                args.push_back(tokens[idx]);
+                idx++;
             }
-
-            if (tokens.size() > 1 && tokens[1] == "BEGIN")
+        }
+        else
+        {
+            if (!rotulo.empty())
             {
-                modo_modulo = true;
-                numeroLinha++;
-                continue;
+                if (!Utils::isRotuloValido(rotulo))
+                {
+                    emitirErro(numeroLinha, "LEXICO", "Rotulo invalido '" + rotulo + "'.");
+                }
+                else if (tabela_simbolos.count(rotulo))
+                {
+                    emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + rotulo + "' redefinido.");
+                }
+                else
+                {
+                    tabela_simbolos[rotulo] = contadorPosicao;
+                }
             }
+            numeroLinha++;
+            continue;
+        }
 
-            if (tokens.size() > 1 && tokens[1] == "EXTERN")
-            {
-                modo_modulo = true;
-                simbolos_externos.insert(rotulo);
-                numeroLinha++;
-                continue;
-            }
+        // Diretivas de Módulo
+        if (operacao == "BEGIN")
+        {
+            modo_modulo = true;
+            if (!rotulo.empty())
+                tabela_simbolos[rotulo] = contadorPosicao;
+            numeroLinha++;
+            continue;
+        }
 
+        if (operacao == "EXTERN")
+        {
+            modo_modulo = true;
+            std::string extSym = !rotulo.empty() ? rotulo : (!args.empty() ? args[0] : "");
+            if (!extSym.empty())
+                simbolos_externos.insert(extSym);
+            numeroLinha++;
+            continue;
+        }
+
+        if (operacao == "PUBLIC")
+        {
+            modo_modulo = true;
+            std::string pubSym = !rotulo.empty() ? rotulo : (!args.empty() ? args[0] : "");
+            if (!pubSym.empty())
+                declaracoes_publicas.push_back(pubSym);
+            numeroLinha++;
+            continue;
+        }
+
+        if (operacao == "END" || operacao == "EQU")
+        {
+            modo_modulo = true;
+            numeroLinha++;
+            continue;
+        }
+
+        if (!rotulo.empty())
+        {
             if (!Utils::isRotuloValido(rotulo))
             {
                 emitirErro(numeroLinha, "LEXICO", "Rotulo invalido '" + rotulo + "'.");
@@ -107,48 +175,15 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             {
                 tabela_simbolos[rotulo] = contadorPosicao;
             }
-            offsetToken = 1;
-            if (tokens.size() == 1)
-            {
-                numeroLinha++;
-                continue;
-            }
-        }
-
-        std::string operacao = tokens[offsetToken];
-
-        if (operacao == "BEGIN" || operacao == "END")
-        {
-            modo_modulo = true;
-            numeroLinha++;
-            continue;
-        }
-
-        if (operacao == "PUBLIC")
-        {
-            modo_modulo = true;
-            if (tokens.size() > (size_t)(offsetToken + 1))
-            {
-                declaracoes_publicas.push_back(tokens[offsetToken + 1]);
-            }
-            numeroLinha++;
-            continue;
-        }
-
-        if (operacao == "EXTERN")
-        {
-            modo_modulo = true;
-            numeroLinha++;
-            continue;
         }
 
         if (operacao == "SECAO" || operacao == "SECTION")
         {
-            if (tokens.size() > (size_t)(offsetToken + 1))
+            if (!args.empty())
             {
-                if (tokens[offsetToken + 1] == "TEXT")
+                if (args[0] == "TEXT")
                     secao_text_encontrada = true;
-                if (tokens[offsetToken + 1] == "DATA")
+                if (args[0] == "DATA")
                     secao_data_encontrada = true;
             }
             numeroLinha++;
@@ -157,11 +192,12 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 
         if (operacao == "IF")
         {
-            std::string arg = tokens[offsetToken + 1];
-            int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
-            if (valor == 0)
+            if (!args.empty())
             {
-                ignorarProximaLinha = true;
+                std::string arg = args[0];
+                int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
+                if (valor == 0)
+                    ignorarProximaLinha = true;
             }
             numeroLinha++;
             continue;
@@ -173,7 +209,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         }
         else if (operacao == "SPACE")
         {
-            int qtd = (tokens.size() > (size_t)(offsetToken + 1)) ? std::stoi(tokens[offsetToken + 1]) : 1;
+            int qtd = (!args.empty()) ? std::stoi(args[0]) : 1;
             contadorPosicao += qtd;
         }
         else if (operacao == "CONST")
@@ -194,7 +230,6 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
     std::string baseSymbol = token;
     int offset = 0;
 
-    // Trata sintaxe de array como ROTULO+2
     size_t posMais = token.find('+');
     if (posMais != std::string::npos)
     {
@@ -206,17 +241,17 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
     {
         tabela_uso.push_back({baseSymbol, posAtual});
         codigoObjeto.push_back(0 + offset);
-        mapa_relocacao.push_back(0); // Referência externa resolvida na ligação
+        mapa_relocacao.push_back(0);
     }
     else if (tabela_simbolos.count(baseSymbol))
     {
         codigoObjeto.push_back(tabela_simbolos[baseSymbol] + offset);
-        mapa_relocacao.push_back(1); // Relocável (sofrerá deslocamento de módulo)
+        mapa_relocacao.push_back(1);
     }
     else if (tabela_equ.count(baseSymbol))
     {
         codigoObjeto.push_back(tabela_equ[baseSymbol] + offset);
-        mapa_relocacao.push_back(0); // Absoluto
+        mapa_relocacao.push_back(0);
     }
     else
     {
@@ -224,7 +259,7 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
         {
             int valor = std::stoi(token);
             codigoObjeto.push_back(valor);
-            mapa_relocacao.push_back(0); // Constante / Absoluto
+            mapa_relocacao.push_back(0);
         }
         catch (...)
         {
@@ -242,7 +277,6 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
     bool ignorarProximaLinha = false;
     std::vector<int> codigoObjeto;
 
-    // Constrói a Tabela de Definições
     for (const auto &pub : declaracoes_publicas)
     {
         if (tabela_simbolos.count(pub))
@@ -280,18 +314,37 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             continue;
         }
 
-        int offsetToken = 0;
-        if (tokens[0].back() == ':')
+        std::string rotulo = "";
+        std::string operacao = "";
+        std::vector<std::string> args;
+        size_t idx = 0;
+
+        if (tokens[idx].back() == ':')
         {
-            offsetToken = 1;
-            if (tokens.size() == 1)
-            {
-                numeroLinha++;
-                continue;
-            }
+            rotulo = tokens[idx].substr(0, tokens[idx].size() - 1);
+            idx++;
+        }
+        else if (tokens.size() > 1 && (tokens[1] == "BEGIN" || tokens[1] == "EXTERN" || tokens[1] == "PUBLIC" || tokens[1] == "EQU"))
+        {
+            rotulo = tokens[idx];
+            idx++;
         }
 
-        std::string operacao = tokens[offsetToken];
+        if (idx < tokens.size())
+        {
+            operacao = tokens[idx];
+            idx++;
+            while (idx < tokens.size())
+            {
+                args.push_back(tokens[idx]);
+                idx++;
+            }
+        }
+        else
+        {
+            numeroLinha++;
+            continue;
+        }
 
         if (operacao == "SECAO" || operacao == "SECTION" || operacao == "EQU" ||
             operacao == "BEGIN" || operacao == "END" || operacao == "PUBLIC" || operacao == "EXTERN")
@@ -302,11 +355,12 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
 
         if (operacao == "IF")
         {
-            std::string arg = tokens[offsetToken + 1];
-            int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
-            if (valor == 0)
+            if (!args.empty())
             {
-                ignorarProximaLinha = true;
+                std::string arg = args[0];
+                int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
+                if (valor == 0)
+                    ignorarProximaLinha = true;
             }
             numeroLinha++;
             continue;
@@ -316,17 +370,17 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         {
             Instrucao inst = tabela_instrucoes.at(operacao);
             codigoObjeto.push_back(inst.opcode);
-            mapa_relocacao.push_back(0); // Opcode é instrução absoluta
+            mapa_relocacao.push_back(0);
 
-            for (size_t i = offsetToken + 1; i < tokens.size(); ++i)
+            for (size_t i = 0; i < args.size(); ++i)
             {
                 int posAtual = codigoObjeto.size();
-                processarOperando(tokens[i], numeroLinha, posAtual, codigoObjeto);
+                processarOperando(args[i], numeroLinha, posAtual, codigoObjeto);
             }
         }
         else if (operacao == "SPACE")
         {
-            int qtd = (tokens.size() > (size_t)(offsetToken + 1)) ? std::stoi(tokens[offsetToken + 1]) : 1;
+            int qtd = (!args.empty()) ? std::stoi(args[0]) : 1;
             for (int i = 0; i < qtd; ++i)
             {
                 codigoObjeto.push_back(0);
@@ -335,19 +389,20 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         }
         else if (operacao == "CONST")
         {
-            std::string arg = tokens[offsetToken + 1];
-            int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
-            codigoObjeto.push_back(valor);
-            mapa_relocacao.push_back(0);
+            if (!args.empty())
+            {
+                std::string arg = args[0];
+                int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
+                codigoObjeto.push_back(valor);
+                mapa_relocacao.push_back(0);
+            }
         }
 
         numeroLinha++;
     }
 
-    // Formatação de saída do arquivo objeto
     if (modo_modulo)
     {
-        // Formato estruturado para o Ligador
         arquivoSaida << "USO:";
         for (const auto &par : tabela_uso)
         {
@@ -378,7 +433,6 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
     }
     else
     {
-        // Formato de linha única (compatível com programas monolíticos sem ligação)
         for (size_t i = 0; i < codigoObjeto.size(); ++i)
         {
             arquivoSaida << codigoObjeto[i];

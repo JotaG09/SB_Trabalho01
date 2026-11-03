@@ -49,4 +49,4 @@ clean:
 
 # Regra para testar o montador monolítico
 run: all
-	./$(TARGET_MONTADOR) "asm-sem-ligacao.txt"
+	./$(TARGET_MONTADOR) "asm-sem-ligacao.asm"
