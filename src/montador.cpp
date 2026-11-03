@@ -30,6 +30,24 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
     std::string linha;
     int contadorPosicao = 0;
     int numeroLinha = 1;
+    bool ignorarProximaLinha = false;
+
+    // Etapa de Pré-processamento de EQU
+    while (std::getline(arquivoEntrada, linha))
+    {
+        Utils::removerComentarios(linha);
+        Utils::paraMaiusculo(linha);
+        std::vector<std::string> tokens = Utils::tokenizar(linha);
+        if (tokens.size() >= 3 && tokens[0].back() == ':' && tokens[1] == "EQU")
+        {
+            std::string rotulo = tokens[0].substr(0, tokens[0].size() - 1);
+            tabela_equ[rotulo] = std::stoi(tokens[2]);
+        }
+    }
+
+    // Reset do ponteiro para a Primeira Passagem real
+    arquivoEntrada.clear();
+    arquivoEntrada.seekg(0, std::ios::beg);
 
     while (std::getline(arquivoEntrada, linha))
     {
@@ -43,34 +61,36 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             continue;
         }
 
+        if (ignorarProximaLinha)
+        {
+            ignorarProximaLinha = false;
+            numeroLinha++;
+            continue;
+        }
+
         int offsetToken = 0;
 
-        // Trata Rótulos
         if (tokens[0].back() == ':')
         {
             std::string rotulo = tokens[0].substr(0, tokens[0].size() - 1);
+
+            if (tokens.size() > 1 && tokens[1] == "EQU")
+            {
+                numeroLinha++;
+                continue; // EQU já processado
+            }
 
             if (!Utils::isRotuloValido(rotulo))
             {
                 emitirErro(numeroLinha, "LEXICO", "Rotulo invalido '" + rotulo + "'.");
             }
-            else if (tabela_simbolos.count(rotulo) || tabela_equ.count(rotulo))
+            else if (tabela_simbolos.count(rotulo))
             {
                 emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + rotulo + "' redefinido.");
             }
             else
             {
-                // Se a próxima palavra for EQU, salva em tabela_equ e NÃO incremente o LC
-                if (tokens.size() > 1 && tokens[1] == "EQU")
-                {
-                    tabela_equ[rotulo] = std::stoi(tokens[2]);
-                    numeroLinha++;
-                    continue; // Pula o resto, EQU não ocupa espaço
-                }
-                else
-                {
-                    tabela_simbolos[rotulo] = contadorPosicao;
-                }
+                tabela_simbolos[rotulo] = contadorPosicao;
             }
             offsetToken = 1;
             if (tokens.size() == 1)
@@ -82,9 +102,9 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 
         std::string operacao = tokens[offsetToken];
 
-        if (operacao == "SECAO")
+        if (operacao == "SECAO" || operacao == "SECTION")
         {
-            if (tokens.size() > offsetToken + 1)
+            if (tokens.size() > (size_t)(offsetToken + 1))
             {
                 if (tokens[offsetToken + 1] == "TEXT")
                     secao_text_encontrada = true;
@@ -95,9 +115,14 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             continue;
         }
 
-        // Não contamos IF no LC (diretiva de controle apenas)
         if (operacao == "IF")
         {
+            std::string arg = tokens[offsetToken + 1];
+            int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
+            if (valor == 0)
+            {
+                ignorarProximaLinha = true;
+            }
             numeroLinha++;
             continue;
         }
@@ -108,14 +133,8 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         }
         else if (operacao == "SPACE")
         {
-            if (tokens.size() > (size_t)(offsetToken + 1))
-            {
-                contadorPosicao += std::stoi(tokens[offsetToken + 1]);
-            }
-            else
-            {
-                contadorPosicao += 1;
-            }
+            int qtd = (tokens.size() > (size_t)(offsetToken + 1)) ? std::stoi(tokens[offsetToken + 1]) : 1;
+            contadorPosicao += qtd;
         }
         else if (operacao == "CONST")
         {
@@ -142,22 +161,9 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         Utils::removerComentarios(linha);
         Utils::paraMaiusculo(linha);
 
-        // Verifica erro sintático de vírgula no COPY antes da tokenização remover os espaços
         if (linha.find("COPY") != std::string::npos && linha.find(',') != std::string::npos)
         {
             emitirErro(numeroLinha, "SINTATICO", "Instrucao COPY possui virgula.");
-        }
-
-        // Substitui valores de EQU no código antes de tokenizar
-        for (const auto &par : tabela_equ)
-        {
-            size_t pos = linha.find(par.first);
-            while (pos != std::string::npos)
-            {
-                // Substituição simples (pode ser aprimorada para evitar substituir parte de outras palavras)
-                linha.replace(pos, par.first.length(), std::to_string(par.second));
-                pos = linha.find(par.first, pos + std::to_string(par.second).length());
-            }
         }
 
         std::vector<std::string> tokens = Utils::tokenizar(linha);
@@ -196,7 +202,8 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
 
         if (operacao == "IF")
         {
-            int valor = std::stoi(tokens[offsetToken + 1]);
+            std::string arg = tokens[offsetToken + 1];
+            int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
             if (valor == 0)
             {
                 ignorarProximaLinha = true;
@@ -210,14 +217,6 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             Instrucao inst = tabela_instrucoes.at(operacao);
             codigoObjeto.push_back(inst.opcode);
 
-            // Valida operandos
-            int numOperandos = tokens.size() - offsetToken - 1;
-            if (numOperandos != (inst.tamanho - 1))
-            {
-                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para " + operacao);
-            }
-
-            // Traduz Operandos (Rótulos -> Endereços)
             for (size_t i = offsetToken + 1; i < tokens.size(); ++i)
             {
                 std::string operando = tokens[i];
@@ -225,10 +224,14 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
                 {
                     codigoObjeto.push_back(tabela_simbolos[operando]);
                 }
+                else if (tabela_equ.count(operando))
+                {
+                    codigoObjeto.push_back(tabela_equ[operando]);
+                }
                 else
                 {
-                    emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + operando + "' ausente (nao declarado).");
-                    codigoObjeto.push_back(0); // Insere 0 para não quebrar a compilação
+                    emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + operando + "' ausente.");
+                    codigoObjeto.push_back(0);
                 }
             }
         }
@@ -237,19 +240,19 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             int qtd = (tokens.size() > (size_t)(offsetToken + 1)) ? std::stoi(tokens[offsetToken + 1]) : 1;
             for (int i = 0; i < qtd; ++i)
             {
-                codigoObjeto.push_back(0); // '00' ou '0' de acordo com a especificação
+                codigoObjeto.push_back(0);
             }
         }
         else if (operacao == "CONST")
         {
-            int valor = std::stoi(tokens[offsetToken + 1]); // Trata negativos e positivos automaticamente
+            std::string arg = tokens[offsetToken + 1];
+            int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
             codigoObjeto.push_back(valor);
         }
 
         numeroLinha++;
     }
 
-    // Escreve no arquivo de saída (Tudo numa linha só separada por espaços)
     for (size_t i = 0; i < codigoObjeto.size(); ++i)
     {
         arquivoSaida << codigoObjeto[i];

@@ -1,7 +1,7 @@
 # Variáveis de configuração
 CXX = g++
-# A flag -Iinclude diz ao compilador para buscar os arquivos .hpp dentro da pasta include
-CXXFLAGS = -Wall -Wextra -std=c++17 -Iinclude
+# Flags -MMD -MP geram automaticamente arquivos .d para rastrear alterações em arquivos .hpp
+CXXFLAGS = -Wall -Wextra -std=c++17 -Iinclude -MMD -MP
 
 # Diretórios
 SRC_DIR = src
@@ -11,11 +11,15 @@ OBJ_DIR = obj
 # Arquivos fonte (dentro de src/)
 SOURCES = $(SRC_DIR)/main.cpp $(SRC_DIR)/montador.cpp
 
-# Mapeia os arquivos de objeto para uma pasta temporária obj/ para não poluir a raiz
+# Mapeia os arquivos de objeto e dependências para a pasta obj/
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
+DEPS = $(OBJECTS:.o=.d)
 
 # Nome do executável final
 TARGET = programa
+
+# Declara regras que não geram arquivos diretamente
+.PHONY: all clean run
 
 # Regra principal
 all: $(OBJ_DIR) $(TARGET)
@@ -24,19 +28,22 @@ all: $(OBJ_DIR) $(TARGET)
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-# Como gerar o executável final a partir dos objetos
+# Gera o executável final a partir dos objetos
 $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) $(OBJECTS) -o $(TARGET)
 
-# Como compilar cada arquivo .cpp de src/ para um arquivo .o em obj/
+# Compila cada arquivo .cpp para .o
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Regra para limpar os arquivos temporários gerados
+# Inclui os arquivos de dependência auto-gerados (.d)
+-include $(DEPS)
+
+# Limpa os executáveis, a pasta obj e os arquivos .obj gerados pelos testes
 clean:
 	rm -rf $(OBJ_DIR) $(TARGET)
-	rm -f *.exe
+	rm -f *.exe *.obj
 
-# Regra para rodar o projeto diretamente
-run:
-	./programa "asm-sem-ligacao.txt"
+# Compila e roda o teste principal automaticamente
+run: all
+	./$(TARGET) "asm-sem-ligacao.txt"
