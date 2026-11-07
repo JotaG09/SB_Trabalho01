@@ -1,6 +1,6 @@
 # Montador e Ligador - Software Básico
 
-Este projeto desenvolve o **Montador** e o **Ligador** para a arquitetura hipotética utilizada na disciplina de **Software Básico** da Universidade de Brasília (UnB).
+Este projeto desenvolve o **Montador** e o **Ligador** para a arquitetura hipotética utilizada na disciplina de **Software Básico**
 
 O sistema é responsável por traduzir programas em linguagem assembly hipotética de duas passagens para código de máquina, suportando montagem de código único, pré-processamento de diretivas (como `EQU` e `IF`), verificação completa de erros e ligação de múltiplos módulos (de 2 a 3 arquivos objeto).
 
