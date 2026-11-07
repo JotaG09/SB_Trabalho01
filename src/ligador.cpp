@@ -16,7 +16,6 @@ struct ModuloObjeto
     int fator_relocacao = 0;
 };
 
-// Lê a estrutura do ficheiro .obj gerado no modo de ligação
 ModuloObjeto lerFicheiroObjeto(const std::string &nomeArquivoObj)
 {
     ModuloObjeto mod;
@@ -76,7 +75,6 @@ ModuloObjeto lerFicheiroObjeto(const std::string &nomeArquivoObj)
 
 int main(int argc, char *argv[])
 {
-    // O ligador aceita no máximo 3 programas na linha de comando
     if (argc < 2 || argc > 4)
     {
         std::cerr << "Erro: Quantidade de argumentos invalida." << std::endl;
@@ -92,7 +90,7 @@ int main(int argc, char *argv[])
 
     std::vector<ModuloObjeto> modulos;
 
-    // 1. Invoca o Montador internamente para criar os objetos intermediários
+    // 1. Invocação interna do Montador
     for (const auto &asmPath : ficheirosAsm)
     {
         std::ifstream input(asmPath);
@@ -128,9 +126,10 @@ int main(int argc, char *argv[])
         modulos.push_back(lerFicheiroObjeto(objPath));
     }
 
-    // 2. Passo 1 do Ligador: Fatores de Relocação e Tabela Global de Definições
+    // 2. Tabela Global de Definições e Fatores de Relocação
     std::unordered_map<std::string, int> tabela_global_def;
     int fatorAtual = 0;
+    bool houveErro = false;
 
     for (auto &mod : modulos)
     {
@@ -140,6 +139,7 @@ int main(int argc, char *argv[])
             if (tabela_global_def.count(par.first))
             {
                 std::cerr << "ERRO SEMANTICO: Simbolo publico '" << par.first << "' redefinido em multiplos modulos." << std::endl;
+                houveErro = true;
             }
             else
             {
@@ -149,12 +149,11 @@ int main(int argc, char *argv[])
         fatorAtual += mod.codigo.size();
     }
 
-    // 3. Passo 2 do Ligador: Relocação e Resolução de Símbolos Externos
+    // 3. Relocação e Resolução de Símbolos Externos
     std::vector<int> codigoExecutavelFinal;
 
     for (auto &mod : modulos)
     {
-        // Reloca endereços internos de acordo com a tabela de relocação
         for (size_t i = 0; i < mod.codigo.size(); ++i)
         {
             if (i < mod.mapa_reloc.size() && mod.mapa_reloc[i] == 1)
@@ -163,7 +162,6 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Resolve os endereços dos símbolos da Tabela de Uso
         for (const auto &uso : mod.tabela_uso)
         {
             std::string simbolo = uso.first;
@@ -176,14 +174,21 @@ int main(int argc, char *argv[])
             else
             {
                 std::cerr << "ERRO SEMANTICO: Simbolo externo '" << simbolo << "' nao encontrado na Tabela de Definicoes." << std::endl;
+                houveErro = true;
             }
         }
 
-        // Junta o código do módulo ao executável unificado
         codigoExecutavelFinal.insert(codigoExecutavelFinal.end(), mod.codigo.begin(), mod.codigo.end());
     }
 
-    // 4. Grava o executável final .LIG
+    // Se houve algum erro semântico na ligação, encerra imediatamente sem gerar o .LIG
+    if (houveErro)
+    {
+        std::cerr << "Falha no processo de ligacao devido a erros semanticos." << std::endl;
+        return 1;
+    }
+
+    // 4. Geração do arquivo .LIG
     std::string nomeSaidaLig = ficheirosAsm[0];
     size_t posPonto = nomeSaidaLig.find_last_of('.');
     if (posPonto != std::string::npos)
