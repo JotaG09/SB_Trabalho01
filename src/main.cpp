@@ -1,11 +1,11 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstdio>
 #include "montador.hpp"
 
 int main(int argc, char *argv[])
 {
-    // Validação de terminal: ex ./montador myprogram.asm
     if (argc != 2)
     {
         std::cerr << "Erro: Quantidade de argumentos invalida." << std::endl;
@@ -22,7 +22,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Altera a extensão do arquivo para .obj
     std::string nomeArquivoSaida;
     size_t posPonto = nomeArquivoEntrada.find_last_of('.');
     if (posPonto != std::string::npos)
@@ -41,14 +40,22 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Instancia o Montador e executa as passagens
     Montador montador;
-    montador.executar(arquivoEntrada, arquivoSaida);
-
-    std::cout << "Montagem finalizada com sucesso. Arquivo gerado: " << nomeArquivoSaida << std::endl;
+    bool sucesso = montador.executar(arquivoEntrada, arquivoSaida);
 
     arquivoEntrada.close();
     arquivoSaida.close();
+
+    if (sucesso)
+    {
+        std::cout << "Montagem finalizada com sucesso. Arquivo gerado: " << nomeArquivoSaida << std::endl;
+    }
+    else
+    {
+        // Se houver erros, remove o arquivo .obj gerado
+        std::remove(nomeArquivoSaida.c_str());
+        std::cout << "Erros detectados durante o processo. Nenhum arquivo objeto foi gerado." << std::endl;
+    }
 
     return 0;
 }

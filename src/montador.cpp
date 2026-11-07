@@ -8,11 +8,16 @@ Montador::Montador() : secao_text_encontrada(false), secao_data_encontrada(false
 
 void Montador::emitirErro(int linha, const std::string &tipo, const std::string &mensagem)
 {
-    std::cerr << "ERRO " << tipo << " (Linha " << linha << "): " << mensagem << std::endl;
+    erros.push_back({linha, tipo, mensagem});
 }
 
-void Montador::executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida)
+bool Montador::executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida)
 {
+    erros.clear();
+    tabela_simbolos.clear();
+    tabela_secao_simbolo.clear();
+    tabela_equ.clear();
+
     primeiraPassagem(arquivoEntrada);
 
     if (!secao_text_encontrada)
@@ -24,6 +29,20 @@ void Montador::executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSai
     arquivoEntrada.seekg(0, std::ios::beg);
 
     segundaPassagem(arquivoEntrada, arquivoSaida);
+
+    if (!erros.empty())
+    {
+        // Ordena todos os erros acumulados por número de linha
+        std::sort(erros.begin(), erros.end());
+
+        for (const auto &err : erros)
+        {
+            std::cout << "ERRO " << err.tipo << " (Linha " << err.linha << "): " << err.mensagem << std::endl;
+        }
+        return false;
+    }
+
+    return true;
 }
 
 void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
@@ -37,7 +56,11 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         Utils::removerComentarios(linha);
         Utils::paraMaiusculo(linha);
         std::vector<std::string> tokens = Utils::tokenizar(linha);
-        if (tokens.empty()) { numeroLinha++; continue; }
+        if (tokens.empty())
+        {
+            numeroLinha++;
+            continue;
+        }
 
         if (tokens[0] == "SECAO" || tokens[0] == "SECTION")
         {
@@ -48,9 +71,12 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         {
             std::string rotulo = (tokens[0].back() == ':') ? tokens[0].substr(0, tokens[0].size() - 1) : tokens[0];
             std::string valStr = (tokens[1] == "EQU") ? tokens[2] : tokens[2];
-            try {
+            try
+            {
                 tabela_equ[rotulo] = std::stoi(valStr);
-            } catch (...) {
+            }
+            catch (...)
+            {
                 emitirErro(numeroLinha, "SINTATICO", "Valor invalido para EQU.");
             }
         }
@@ -64,17 +90,21 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
     int contadorPosicaoText = 0;
     int contadorPosicaoData = 0;
     bool emSecaoText = false;
-    bool emSecaoData = false;
     bool ignorarProximaLinha = false;
     std::string rotuloPendente = "";
 
     while (std::getline(arquivoEntrada, linha))
     {
+        std::string linhaOriginal = linha;
         Utils::removerComentarios(linha);
         Utils::paraMaiusculo(linha);
 
         std::vector<std::string> tokens = Utils::tokenizar(linha);
-        if (tokens.empty()) { numeroLinha++; continue; }
+        if (tokens.empty())
+        {
+            numeroLinha++;
+            continue;
+        }
 
         if (ignorarProximaLinha)
         {
@@ -128,8 +158,16 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         {
             if (!args.empty())
             {
-                if (args[0] == "TEXT") { secao_text_encontrada = true; emSecaoText = true; emSecaoData = false; }
-                else if (args[0] == "DATA") { secao_data_encontrada = true; emSecaoData = true; emSecaoText = false; }
+                if (args[0] == "TEXT")
+                {
+                    secao_text_encontrada = true;
+                    emSecaoText = true;
+                }
+                else if (args[0] == "DATA")
+                {
+                    secao_data_encontrada = true;
+                    emSecaoText = false;
+                }
             }
             numeroLinha++;
             continue;
@@ -138,7 +176,8 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         if (operacao == "BEGIN")
         {
             modo_modulo = true;
-            if (!rotulo.empty()) tabela_simbolos[rotulo] = 0;
+            if (!rotulo.empty())
+                tabela_simbolos[rotulo] = 0;
             numeroLinha++;
             continue;
         }
@@ -147,7 +186,8 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         {
             modo_modulo = true;
             std::string extSym = !rotulo.empty() ? rotulo : (!args.empty() ? args[0] : "");
-            if (!extSym.empty()) simbolos_externos.insert(extSym);
+            if (!extSym.empty())
+                simbolos_externos.insert(extSym);
             numeroLinha++;
             continue;
         }
@@ -156,7 +196,8 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         {
             modo_modulo = true;
             std::string pubSym = !args.empty() ? args[0] : rotulo;
-            if (!pubSym.empty()) declaracoes_publicas.push_back(pubSym);
+            if (!pubSym.empty())
+                declaracoes_publicas.push_back(pubSym);
             numeroLinha++;
             continue;
         }
@@ -170,12 +211,19 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 
         if (operacao == "IF")
         {
-            if (!emSecaoText) emitirErro(numeroLinha, "SEMANTICO", "Diretiva IF deve estar na SECAO TEXT.");
-            if (!args.empty())
+            if (!emSecaoText)
+                emitirErro(numeroLinha, "SEMANTICO", "Diretiva IF deve estar na SECAO TEXT.");
+
+            if (args.empty() || args.size() > 1)
+            {
+                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para diretiva 'IF'.");
+            }
+            else
             {
                 std::string arg = args[0];
                 int valor = tabela_equ.count(arg) ? tabela_equ[arg] : (std::isdigit(arg[0]) || arg[0] == '-' ? std::stoi(arg) : 0);
-                if (valor == 0) ignorarProximaLinha = true;
+                if (valor == 0)
+                    ignorarProximaLinha = true;
             }
             numeroLinha++;
             continue;
@@ -190,12 +238,28 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 
         if (tabela_instrucoes.count(operacao))
         {
-            if (!emSecaoText) emitirErro(numeroLinha, "SEMANTICO", "Instrucao executavel fora da SECAO TEXT.");
+            if (!emSecaoText)
+                emitirErro(numeroLinha, "SEMANTICO", "Instrucao executavel fora da SECAO TEXT.");
             contadorPosicaoText += tabela_instrucoes.at(operacao).tamanho;
         }
         else if (operacao == "SPACE")
         {
-            int qtd = (!args.empty()) ? std::stoi(args[0]) : 1;
+            if (args.size() > 1)
+            {
+                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para diretiva 'SPACE'.");
+            }
+            int qtd = 1;
+            if (!args.empty())
+            {
+                try
+                {
+                    qtd = std::stoi(args[0]);
+                }
+                catch (...)
+                {
+                    qtd = 1;
+                }
+            }
             contadorPosicaoData += qtd;
         }
         else if (operacao == "CONST")
@@ -224,7 +288,8 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 void Montador::processarOperando(const std::string &token, int linha, int posAtual, std::vector<int> &codigoObjeto)
 {
     std::string argLimpo = token;
-    if (!argLimpo.empty() && argLimpo.back() == ',') argLimpo.pop_back();
+    if (!argLimpo.empty() && argLimpo.back() == ',')
+        argLimpo.pop_back();
 
     std::string baseSymbol = argLimpo;
     int offset = 0;
@@ -233,7 +298,14 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
     if (posMais != std::string::npos)
     {
         baseSymbol = argLimpo.substr(0, posMais);
-        offset = std::stoi(argLimpo.substr(posMais + 1));
+        try
+        {
+            offset = std::stoi(argLimpo.substr(posMais + 1));
+        }
+        catch (...)
+        {
+            offset = 0;
+        }
     }
 
     if (simbolos_externos.count(baseSymbol))
@@ -292,15 +364,18 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         }
     }
 
-    bool emSecaoText = false;
-
     while (std::getline(arquivoEntrada, linha))
     {
+        std::string linhaOriginal = linha;
         Utils::removerComentarios(linha);
         Utils::paraMaiusculo(linha);
 
         std::vector<std::string> tokens = Utils::tokenizar(linha);
-        if (tokens.empty()) { numeroLinha++; continue; }
+        if (tokens.empty())
+        {
+            numeroLinha++;
+            continue;
+        }
 
         if (ignorarProximaLinha)
         {
@@ -310,27 +385,24 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         }
 
         size_t idx = 0;
-        if (tokens[idx].back() == ':') idx++;
-        else if (tokens.size() > 1 && (tokens[1] == "BEGIN" || tokens[1] == "EXTERN" || tokens[1] == "PUBLIC" || tokens[1] == "EQU")) idx++;
+        if (tokens[idx].back() == ':')
+            idx++;
+        else if (tokens.size() > 1 && (tokens[1] == "BEGIN" || tokens[1] == "EXTERN" || tokens[1] == "PUBLIC" || tokens[1] == "EQU"))
+            idx++;
 
-        if (idx >= tokens.size()) { numeroLinha++; continue; }
-
-        std::string operacao = tokens[idx++];
-        std::vector<std::string> args;
-        while (idx < tokens.size()) args.push_back(tokens[idx++]);
-
-        if (operacao == "SECAO" || operacao == "SECTION")
+        if (idx >= tokens.size())
         {
-            if (!args.empty())
-            {
-                if (args[0] == "TEXT") emSecaoText = true;
-                else if (args[0] == "DATA") emSecaoText = false;
-            }
             numeroLinha++;
             continue;
         }
 
-        if (operacao == "BEGIN" || operacao == "END" || operacao == "PUBLIC" || operacao == "EXTERN" || operacao == "EQU")
+        std::string operacao = tokens[idx++];
+        std::vector<std::string> args;
+        while (idx < tokens.size())
+            args.push_back(tokens[idx++]);
+
+        if (operacao == "SECAO" || operacao == "SECTION" || operacao == "BEGIN" ||
+            operacao == "END" || operacao == "PUBLIC" || operacao == "EXTERN" || operacao == "EQU")
         {
             numeroLinha++;
             continue;
@@ -338,11 +410,12 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
 
         if (operacao == "IF")
         {
-            if (!args.empty())
+            if (!args.empty() && args.size() == 1)
             {
                 std::string arg = args[0];
                 int valor = tabela_equ.count(arg) ? tabela_equ[arg] : (std::isdigit(arg[0]) || arg[0] == '-' ? std::stoi(arg) : 0);
-                if (valor == 0) ignorarProximaLinha = true;
+                if (valor == 0)
+                    ignorarProximaLinha = true;
             }
             numeroLinha++;
             continue;
@@ -350,7 +423,7 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
 
         if (operacao == "COPY")
         {
-            if (linha.find(',') != std::string::npos)
+            if (linhaOriginal.find(',') != std::string::npos)
             {
                 emitirErro(numeroLinha, "SINTATICO", "Comando COPY nao deve utilizar virgula entre os operandos.");
             }
@@ -375,7 +448,18 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         }
         else if (operacao == "SPACE")
         {
-            int qtd = (!args.empty()) ? std::stoi(args[0]) : 1;
+            int qtd = 1;
+            if (!args.empty())
+            {
+                try
+                {
+                    qtd = std::stoi(args[0]);
+                }
+                catch (...)
+                {
+                    qtd = 1;
+                }
+            }
             for (int i = 0; i < qtd; ++i)
             {
                 codigoData.push_back(0);
@@ -387,7 +471,20 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             if (!args.empty())
             {
                 std::string arg = args[0];
-                int valor = tabela_equ.count(arg) ? tabela_equ[arg] : std::stoi(arg);
+                int valor = 0;
+                if (tabela_equ.count(arg))
+                    valor = tabela_equ[arg];
+                else
+                {
+                    try
+                    {
+                        valor = std::stoi(arg);
+                    }
+                    catch (...)
+                    {
+                        valor = 0;
+                    }
+                }
                 codigoData.push_back(valor);
                 relocData.push_back(0);
             }

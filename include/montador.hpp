@@ -7,6 +7,19 @@
 #include <unordered_set>
 #include <vector>
 #include <utility>
+#include <algorithm>
+
+struct ErroMontador
+{
+    int linha;
+    std::string tipo;
+    std::string mensagem;
+
+    bool operator<(const ErroMontador &outro) const
+    {
+        return linha < outro.linha;
+    }
+};
 
 class Montador
 {
@@ -22,6 +35,8 @@ private:
     std::unordered_map<std::string, int> tabela_definicoes;
     std::vector<int> mapa_relocacao;
 
+    std::vector<ErroMontador> erros;
+
     int tamanho_text = 0;
     bool secao_text_encontrada;
     bool secao_data_encontrada;
@@ -34,7 +49,7 @@ private:
 
 public:
     Montador();
-    void executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida);
+    bool executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida);
 };
 
 #endif // MONTADOR_HPP
