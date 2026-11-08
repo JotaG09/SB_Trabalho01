@@ -99,8 +99,7 @@ Se você estiver utilizando o Windows de forma nativa e possuir o compilador `g+
 1. **Compilar os Executáveis Manualmente:**
    Abra o PowerShell na raiz do projeto e execute os comandos de compilação:
    ```powershell
-   g++ -std=c++17 src/main.cpp src/montador.cpp src/utils.cpp -I include -o montador.exe
-   g++ -std=c++17 src/ligador.cpp src/montador.cpp src/utils.cpp -I include -o ligador.exe
+    make
    ```
 
 2. **Como Usar:**
@@ -119,6 +118,11 @@ Se você estiver utilizando o Windows de forma nativa e possuir o compilador `g+
      # Ou para programas ligados:
      .\simulador.exe exemplos\mod1.lig
      ```
+
+3. **Limpar arquivos compilados:**
+   ```bash
+   make clean
+   ```
 
 ---
 
