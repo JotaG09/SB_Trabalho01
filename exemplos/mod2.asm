@@ -1,17 +1,21 @@
 MOD2: BEGIN
 SECAO TEXT
-PUBLIC SOMA_ROTINA
-PUBLIC NUM1
-PUBLIC NUM2
+; Exporta o ponto de entrada da rotina de soma
+PUBLIC SOMA_MOD2
 
-SOMA_ROTINA: LOAD NUM1
-ADD NUM2
+; Importa as variáveis e o ponto de retorno do Módulo 1
+EXTERN N1
+EXTERN N2
+EXTERN RESULTADO
+EXTERN FINALIZAR
+
+SOMA_MOD2: LOAD N1
+ADD N2
 STORE RESULTADO
-OUTPUT RESULTADO
-STOP
+
+; Salta de volta para o Módulo 1 para imprimir e parar
+JMP FINALIZAR
 
 SECAO DATA
-NUM1: SPACE
-NUM2: SPACE
-RESULTADO: SPACE
+; Não precisa de variáveis próprias, usa as do Módulo 1
 END

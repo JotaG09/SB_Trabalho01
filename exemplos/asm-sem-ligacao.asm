@@ -1,3 +1,4 @@
+;Tranforma o número recebido na entrada em sua forma binária
 SECTION TEXT
 INPUT OLD_DATA
 LOAD OLD_DATA
