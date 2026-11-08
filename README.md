@@ -45,7 +45,6 @@ O **Ligador** combina até 3 módulos objeto independentes (gerados com as diret
 │   ├── montador.cpp
 │   └── ligador.cpp
 └── exemplos/               # Códigos assembly e módulos de teste
-    ├── asm-com-ligacao.asm
     ├── asm-sem-ligacao.asm
     ├── mod1.asm
     ├── mod2.asm
