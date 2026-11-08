@@ -3,6 +3,7 @@
 #include "tabelas.hpp"
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 Montador::Montador() : secao_text_encontrada(false), secao_data_encontrada(false), modo_modulo(false) {}
 
@@ -312,12 +313,12 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
     {
         tabela_uso.push_back({baseSymbol, posAtual});
         codigoObjeto.push_back(0 + offset);
-        mapa_relocacao.push_back(0);
+        mapa_relocacao.push_back(0); // Sinalizado como 0 pq será resolvido pelo Ligador via Uso
     }
     else if (tabela_simbolos.count(baseSymbol))
     {
         codigoObjeto.push_back(tabela_simbolos[baseSymbol] + offset);
-        mapa_relocacao.push_back(1);
+        mapa_relocacao.push_back(1); // SÍMBOLO RELOCÁVEL INTERNO (Aqui está a chave!)
     }
     else if (tabela_equ.count(baseSymbol))
     {
@@ -330,7 +331,7 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
         {
             int valor = std::stoi(argLimpo);
             codigoObjeto.push_back(valor);
-            mapa_relocacao.push_back(0);
+            mapa_relocacao.push_back(0); // Imediato
         }
         catch (...)
         {
@@ -433,7 +434,7 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         {
             Instrucao inst = tabela_instrucoes.at(operacao);
             codigoText.push_back(inst.opcode);
-            relocText.push_back(0);
+            relocText.push_back(0); // Opcode nunca é relocável
 
             if (args.size() != static_cast<size_t>(inst.tamanho - 1))
             {
@@ -443,7 +444,19 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
             for (size_t i = 0; i < args.size(); ++i)
             {
                 int posAtual = codigoText.size();
+                mapa_relocacao.clear(); // Limpa o mapa temporário do operando
+
                 processarOperando(args[i], numeroLinha, posAtual, codigoText);
+
+                // Transfere o bit coletado pela processarOperando para o relocText oficial!
+                if (!mapa_relocacao.empty())
+                {
+                    relocText.push_back(mapa_relocacao.back());
+                }
+                else
+                {
+                    relocText.push_back(0);
+                }
             }
         }
         else if (operacao == "SPACE")

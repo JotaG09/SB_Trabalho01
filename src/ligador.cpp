@@ -154,14 +154,10 @@ int main(int argc, char *argv[])
 
     for (auto &mod : modulos)
     {
-        for (size_t i = 0; i < mod.codigo.size(); ++i)
-        {
-            if (i < mod.mapa_reloc.size() && mod.mapa_reloc[i] == 1)
-            {
-                mod.codigo[i] += mod.fator_relocacao;
-            }
-        }
+        // Cria um conjunto para marcar quais endereços do código já foram resolvidos por símbolos externos
+        std::unordered_map<int, bool> resolvidoPelaTabelaUso;
 
+        // 3.1 - PRIMEIRO, resolvemos a Tabela de Uso (Símbolos Externos)
         for (const auto &uso : mod.tabela_uso)
         {
             std::string simbolo = uso.first;
@@ -169,12 +165,26 @@ int main(int argc, char *argv[])
 
             if (tabela_global_def.count(simbolo))
             {
+                // Substitui o valor (que estava como 0 ou offset) somando com o valor real da Tabela Global
                 mod.codigo[enderecoUso] += tabela_global_def[simbolo];
+                // Marca este endereço como resolvido externamente
+                resolvidoPelaTabelaUso[enderecoUso] = true;
             }
             else
             {
                 std::cerr << "ERRO SEMANTICO: Simbolo externo '" << simbolo << "' nao encontrado na Tabela de Definicoes." << std::endl;
                 houveErro = true;
+            }
+        }
+
+        // 3.2 - DEPOIS, aplicamos o fator de relocação no código (Endereços Relativos Internos)
+        for (size_t i = 0; i < mod.codigo.size(); ++i)
+        {
+            // Aplica o fator de relocação SE a posição estiver marcada no mapa de relocação
+            // E SE essa posição não for uma referência a um símbolo externo (que já foi corrigida no passo anterior).
+            if (i < mod.mapa_reloc.size() && mod.mapa_reloc[i] == 1 && !resolvidoPelaTabelaUso[i])
+            {
+                mod.codigo[i] += mod.fator_relocacao;
             }
         }
 
