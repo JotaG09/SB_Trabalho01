@@ -99,10 +99,10 @@ Para montar um programa em arquivo único ou um módulo:
 Para ligar 2 ou 3 módulos `.obj`:
 
 ```bash
-./ligador exemplos/mod1.obj exemplos/mod2.obj
+./ligador exemplos/mod1.asm exemplos/mod2.asm
 ```
 
-* **Saída:** Gera o arquivo executável consolidado (ex: `exemplos/mod1.e` ou `mod1.obj` unificado) com a memória totalmente relocada.
+* **Saída:** Gera os códigos obj e `mod1.lig` unificado.
 
 ---
 
