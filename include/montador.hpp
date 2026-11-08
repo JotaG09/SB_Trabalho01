@@ -14,6 +14,7 @@ struct ErroMontador
     int linha;
     std::string tipo;
     std::string mensagem;
+    std::string conteudoLinha; // Nova propriedade para armazenar a linha original
 
     bool operator<(const ErroMontador &outro) const
     {
@@ -36,6 +37,7 @@ private:
     std::vector<int> mapa_relocacao;
 
     std::vector<ErroMontador> erros;
+    std::vector<std::string> linhasArquivo; // Armazena todas as linhas do arquivo original
 
     int tamanho_text = 0;
     bool secao_text_encontrada;
@@ -44,7 +46,7 @@ private:
 
     void primeiraPassagem(std::ifstream &arquivoEntrada);
     void segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida);
-    void emitirErro(int linha, const std::string &tipo, const std::string &mensagem);
+    void emitirErro(int linha, const std::string &tipo, const std::string &mensagem, const std::string &conteudo = "");
     void processarOperando(const std::string &token, int linha, int posAtual, std::vector<int> &codigoObjeto);
 
 public:

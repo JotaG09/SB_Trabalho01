@@ -7,9 +7,15 @@
 
 Montador::Montador() : secao_text_encontrada(false), secao_data_encontrada(false), modo_modulo(false) {}
 
-void Montador::emitirErro(int linha, const std::string &tipo, const std::string &mensagem)
+void Montador::emitirErro(int linha, const std::string &tipo, const std::string &mensagem, const std::string &conteudo)
 {
-    erros.push_back({linha, tipo, mensagem});
+    std::string linhaOriginal = conteudo;
+    // Se o conteúdo não foi passado explicitamente, busca pelo número da linha no vetor armazenado
+    if (linhaOriginal.empty() && linha > 0 && static_cast<size_t>(linha) <= linhasArquivo.size())
+    {
+        linhaOriginal = linhasArquivo[linha - 1];
+    }
+    erros.push_back({linha, tipo, mensagem, linhaOriginal});
 }
 
 bool Montador::executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSaida)
@@ -18,12 +24,23 @@ bool Montador::executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSai
     tabela_simbolos.clear();
     tabela_secao_simbolo.clear();
     tabela_equ.clear();
+    linhasArquivo.clear();
+
+    // Carrega o arquivo inteiro para a memória para acesso rápido às linhas originais
+    std::string linhaTemp;
+    while (std::getline(arquivoEntrada, linhaTemp))
+    {
+        linhasArquivo.push_back(linhaTemp);
+    }
+
+    arquivoEntrada.clear();
+    arquivoEntrada.seekg(0, std::ios::beg);
 
     primeiraPassagem(arquivoEntrada);
 
     if (!secao_text_encontrada)
     {
-        emitirErro(0, "SEMANTICO", "Secao TEXT ausente no programa.");
+        emitirErro(0, "SEMANTICO", "Secao TEXT ausente no programa.", "");
     }
 
     arquivoEntrada.clear();
@@ -38,7 +55,14 @@ bool Montador::executar(std::ifstream &arquivoEntrada, std::ofstream &arquivoSai
 
         for (const auto &err : erros)
         {
-            std::cout << "ERRO " << err.tipo << " (Linha " << err.linha << "): " << err.mensagem << std::endl;
+            if (err.linha > 0)
+            {
+                std::cout << "ERRO " << err.tipo << " (Linha " << err.linha << " [" << err.conteudoLinha << "]): " << err.mensagem << std::endl;
+            }
+            else
+            {
+                std::cout << "ERRO " << err.tipo << ": " << err.mensagem << std::endl;
+            }
         }
         return false;
     }
@@ -54,6 +78,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
     // Coleta de EQU antes de qualquer seção
     while (std::getline(arquivoEntrada, linha))
     {
+        std::string linhaOriginal = linha;
         Utils::removerComentarios(linha);
         Utils::paraMaiusculo(linha);
         std::vector<std::string> tokens = Utils::tokenizar(linha);
@@ -78,7 +103,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             }
             catch (...)
             {
-                emitirErro(numeroLinha, "SINTATICO", "Valor invalido para EQU.");
+                emitirErro(numeroLinha, "SINTATICO", "Valor invalido para EQU.", linhaOriginal);
             }
         }
         numeroLinha++;
@@ -133,11 +158,11 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         {
             if (!Utils::isRotuloValido(rotulo))
             {
-                emitirErro(numeroLinha, "LEXICO", "Rotulo invalido '" + rotulo + "'.");
+                emitirErro(numeroLinha, "LEXICO", "Rotulo invalido '" + rotulo + "'.", linhaOriginal);
             }
             else if (tabela_simbolos.count(rotulo))
             {
-                emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + rotulo + "' redefinido.");
+                emitirErro(numeroLinha, "SEMANTICO", "Rotulo '" + rotulo + "' redefinido.", linhaOriginal);
             }
         }
 
@@ -174,36 +199,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
             continue;
         }
 
-        if (operacao == "BEGIN")
-        {
-            modo_modulo = true;
-            if (!rotulo.empty())
-                tabela_simbolos[rotulo] = 0;
-            numeroLinha++;
-            continue;
-        }
-
-        if (operacao == "EXTERN")
-        {
-            modo_modulo = true;
-            std::string extSym = !rotulo.empty() ? rotulo : (!args.empty() ? args[0] : "");
-            if (!extSym.empty())
-                simbolos_externos.insert(extSym);
-            numeroLinha++;
-            continue;
-        }
-
-        if (operacao == "PUBLIC")
-        {
-            modo_modulo = true;
-            std::string pubSym = !args.empty() ? args[0] : rotulo;
-            if (!pubSym.empty())
-                declaracoes_publicas.push_back(pubSym);
-            numeroLinha++;
-            continue;
-        }
-
-        if (operacao == "END" || operacao == "EQU")
+        if (operacao == "BEGIN" || operacao == "END" || operacao == "PUBLIC" || operacao == "EXTERN" || operacao == "EQU")
         {
             modo_modulo = true;
             numeroLinha++;
@@ -213,11 +209,11 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         if (operacao == "IF")
         {
             if (!emSecaoText)
-                emitirErro(numeroLinha, "SEMANTICO", "Diretiva IF deve estar na SECAO TEXT.");
+                emitirErro(numeroLinha, "SEMANTICO", "Diretiva IF deve estar na SECAO TEXT.", linhaOriginal);
 
             if (args.empty() || args.size() > 1)
             {
-                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para diretiva 'IF'.");
+                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para diretiva 'IF'.", linhaOriginal);
             }
             else
             {
@@ -240,14 +236,14 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         if (tabela_instrucoes.count(operacao))
         {
             if (!emSecaoText)
-                emitirErro(numeroLinha, "SEMANTICO", "Instrucao executavel fora da SECAO TEXT.");
+                emitirErro(numeroLinha, "SEMANTICO", "Instrucao executavel fora da SECAO TEXT.", linhaOriginal);
             contadorPosicaoText += tabela_instrucoes.at(operacao).tamanho;
         }
         else if (operacao == "SPACE")
         {
             if (args.size() > 1)
             {
-                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para diretiva 'SPACE'.");
+                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para diretiva 'SPACE'.", linhaOriginal);
             }
             int qtd = 1;
             if (!args.empty())
@@ -269,7 +265,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
         }
         else
         {
-            emitirErro(numeroLinha, "SINTATICO", "Instrucao ou diretiva invalida '" + operacao + "'.");
+            emitirErro(numeroLinha, "SINTATICO", "Instrucao ou diretiva invalida '" + operacao + "'.", linhaOriginal);
         }
 
         numeroLinha++;
@@ -288,6 +284,7 @@ void Montador::primeiraPassagem(std::ifstream &arquivoEntrada)
 
 void Montador::processarOperando(const std::string &token, int linha, int posAtual, std::vector<int> &codigoObjeto)
 {
+    (void) linha;
     std::string argLimpo = token;
     if (!argLimpo.empty() && argLimpo.back() == ',')
         argLimpo.pop_back();
@@ -313,12 +310,12 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
     {
         tabela_uso.push_back({baseSymbol, posAtual});
         codigoObjeto.push_back(0 + offset);
-        mapa_relocacao.push_back(0); // Sinalizado como 0 pq será resolvido pelo Ligador via Uso
+        mapa_relocacao.push_back(0);
     }
     else if (tabela_simbolos.count(baseSymbol))
     {
         codigoObjeto.push_back(tabela_simbolos[baseSymbol] + offset);
-        mapa_relocacao.push_back(1); // SÍMBOLO RELOCÁVEL INTERNO (Aqui está a chave!)
+        mapa_relocacao.push_back(1);
     }
     else if (tabela_equ.count(baseSymbol))
     {
@@ -331,11 +328,11 @@ void Montador::processarOperando(const std::string &token, int linha, int posAtu
         {
             int valor = std::stoi(argLimpo);
             codigoObjeto.push_back(valor);
-            mapa_relocacao.push_back(0); // Imediato
+            mapa_relocacao.push_back(0);
         }
         catch (...)
         {
-            emitirErro(linha, "SEMANTICO", "Declaracao ou rotulo ausente '" + baseSymbol + "'.");
+            // Erro tratado na segunda passagem com a linha original correspondente
             codigoObjeto.push_back(0);
             mapa_relocacao.push_back(0);
         }
@@ -361,7 +358,7 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         }
         else
         {
-            emitirErro(0, "SEMANTICO", "Simbolo publico '" + pub + "' nao foi definido no modulo.");
+            emitirErro(0, "SEMANTICO", "Simbolo publico '" + pub + "' nao foi definido no modulo.", "");
         }
     }
 
@@ -426,7 +423,7 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         {
             if (linhaOriginal.find(',') != std::string::npos)
             {
-                emitirErro(numeroLinha, "SINTATICO", "Comando COPY nao deve utilizar virgula entre os operandos.");
+                emitirErro(numeroLinha, "SINTATICO", "Comando COPY nao deve utilizar virgula entre os operandos.", linhaOriginal);
             }
         }
 
@@ -434,21 +431,45 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
         {
             Instrucao inst = tabela_instrucoes.at(operacao);
             codigoText.push_back(inst.opcode);
-            relocText.push_back(0); // Opcode nunca é relocável
+            relocText.push_back(0);
 
             if (args.size() != static_cast<size_t>(inst.tamanho - 1))
             {
-                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para instrucao '" + operacao + "'.");
+                emitirErro(numeroLinha, "SINTATICO", "Quantidade de operandos errada para instrucao '" + operacao + "'.", linhaOriginal);
             }
 
             for (size_t i = 0; i < args.size(); ++i)
             {
                 int posAtual = codigoText.size();
-                mapa_relocacao.clear(); // Limpa o mapa temporário do operando
+                mapa_relocacao.clear();
+
+                std::string argLimpo = args[i];
+                if (!argLimpo.empty() && argLimpo.back() == ',')
+                    argLimpo.pop_back();
+
+                std::string baseSymbol = argLimpo;
+                size_t posMais = argLimpo.find('+');
+                if (posMais != std::string::npos)
+                {
+                    baseSymbol = argLimpo.substr(0, posMais);
+                }
+
+                // Validação de rótulo ausente na segunda passagem
+                if (!simbolos_externos.count(baseSymbol) && !tabela_simbolos.count(baseSymbol) &&
+                    !tabela_equ.count(baseSymbol))
+                {
+                    try
+                    {
+                        std::stoi(argLimpo);
+                    }
+                    catch (...)
+                    {
+                        emitirErro(numeroLinha, "SEMANTICO", "Declaracao ou rotulo ausente '" + baseSymbol + "'.", linhaOriginal);
+                    }
+                }
 
                 processarOperando(args[i], numeroLinha, posAtual, codigoText);
 
-                // Transfere o bit coletado pela processarOperando para o relocText oficial!
                 if (!mapa_relocacao.empty())
                 {
                     relocText.push_back(mapa_relocacao.back());
@@ -457,49 +478,6 @@ void Montador::segundaPassagem(std::ifstream &arquivoEntrada, std::ofstream &arq
                 {
                     relocText.push_back(0);
                 }
-            }
-        }
-        else if (operacao == "SPACE")
-        {
-            int qtd = 1;
-            if (!args.empty())
-            {
-                try
-                {
-                    qtd = std::stoi(args[0]);
-                }
-                catch (...)
-                {
-                    qtd = 1;
-                }
-            }
-            for (int i = 0; i < qtd; ++i)
-            {
-                codigoData.push_back(0);
-                relocData.push_back(0);
-            }
-        }
-        else if (operacao == "CONST")
-        {
-            if (!args.empty())
-            {
-                std::string arg = args[0];
-                int valor = 0;
-                if (tabela_equ.count(arg))
-                    valor = tabela_equ[arg];
-                else
-                {
-                    try
-                    {
-                        valor = std::stoi(arg);
-                    }
-                    catch (...)
-                    {
-                        valor = 0;
-                    }
-                }
-                codigoData.push_back(valor);
-                relocData.push_back(0);
             }
         }
 
