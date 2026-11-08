@@ -45,7 +45,7 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 
 # Limpeza dos objetos e binários
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET_MONTADOR) $(TARGET_LIGADOR) *.obj *.lig *.exe
+	rm -rf $(OBJ_DIR) $(TARGET_MONTADOR) $(TARGET_LIGADOR) exemplos/*.obj exemplos/*.lig
 
 # Regra para testar o montador monolítico
 run: all
