@@ -96,7 +96,7 @@ Para montar um programa em arquivo único ou um módulo:
 
 ### Executando o Ligador
 
-Para ligar 2 ou 3 módulos `.obj`:
+Para ligar 2 ou 3 módulos:
 
 ```bash
 ./ligador exemplos/mod1.asm exemplos/mod2.asm
