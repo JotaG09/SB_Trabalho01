@@ -108,12 +108,19 @@ Para ligar 2 ou 3 módulos `.obj`:
 
 ### Executando no Simulador
 
-Para testar a execução no simulador fornecido:
+Para testar a execução do programa gerado pelo montador:
 
 ```bash
 chmod +x simulador
 ./simulador exemplos/asm-sem-ligacao.obj
 ```
+Para testar a execução do programa gerado pelo ligador:
+
+```bash
+chmod +x simulador
+./simulador exemplos/mod1.lig
+```
+
 
 ---
 
