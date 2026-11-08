@@ -4,7 +4,7 @@ Este projeto desenvolve o **Montador** e o **Ligador** para a arquitetura hipot�
 
 ## Funcionalidades e Arquitetura
 
-1. ### Montador (`montador`)
+### 1. Montador (`montador`)
 
 - **Processamento de Duas Passagens:**
 - **1ª Passagem:** Mapeamento da Tabela de Símbolos, verificação de redefinições, validação de rótulos, tratamento de diretivas de pré-processamento (`EQU` e `IF`) e cálculo das posições dos símbolos nas seções (`TEXT` e `DATA`).
